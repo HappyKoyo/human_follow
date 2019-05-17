@@ -10,23 +10,6 @@ from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Twist
 
-# Keras
-# Define Model
-from keras import layers,models
-from keras.layers.core import Dense
-model = models.Sequential()
-
-# Expand Model using Dense
-
-model.add(Dense(64, activation='relu', input_shape=(64 * 64,)))
-model.add(Dense(10, activation='softmax'))
-
-# 
-model.compile(optimizer='rmsprop',
-              loss='categorical_crossentropy',
-              metrics=['accuracy'])
-#from keras.models
-
 class HumanFollowTrain:
     def __init__(self):
         self.color_image_sub = rospy.Subscriber('/camera/color/image_raw',Image,self.ColorImageCB)
@@ -54,7 +37,7 @@ class HumanFollowTrain:
         self.joy_input["x"]     = msg.linear.x
         self.joy_input["theta"] = msg.angular.z
 
-    def genTrainData(self):
+    def getTrainDepth(self):
         # convert image to (float64, 1*128*128)
         resized_depth_img = cv2.resize(self.depth_img,dsize=(128,128))
         resized_depth_img = resized_depth_img.astype(np.float64)
@@ -68,19 +51,27 @@ class HumanFollowTrain:
                     resized_depth_img[0][h_i][w_i] = 1-float(resized_depth_img[0][h_i][w_i]-30)/2980
         return resized_depth_img
 
+    def getTrainJoy(self):
+        joy_data = np.zeros(2).reshape(1,2)
+        joy_data[0][0] = self.joy_input["x"]
+        joy_data[0][1] = self.joy_input["theta"]
+        return joy_data
+
     def main(self):
         r = rospy.Rate(10) # main loop Hz
         img_num = 0
-        train_depth_imgs = np.zeros(128*128).reshape(1,128,128)
+        train_depth = np.zeros(128*128).reshape(1,128,128)
+        train_joy   = np.zeros(2).reshape(1,2)
         while not rospy.is_shutdown() and img_num < 256:
             r.sleep()
             img_num = img_num + 1
-            # generate traindata from self class depth image
-            train_data = self.getTrainDepth()
+            # generate train data
+            depth_data = self.getTrainDepth()
             joy_data = self.getTrainJoy()
             # append datasets
-            train_depth_imgs = np.append(train_depth_imgs,train_data,axis=0)
-            print img_num
+            train_depth = np.append(train_depth,depth_data,axis=0)
+            train_joy   = np.append(train_joy,joy_data,axis=0)
+            print train_joy
         # save training data
         np.save('depth_data.npy',train_depth)
         np.save('joy_data.npy',train_joy)
@@ -88,3 +79,5 @@ class HumanFollowTrain:
 if __name__ == '__main__':
     rospy.init_node('human_follow_train',anonymous=True)
     human_follow_train = HumanFollowTrain()
+    human_follow_train.main()
+
