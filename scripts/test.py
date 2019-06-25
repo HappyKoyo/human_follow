@@ -3,6 +3,7 @@
 # General
 import numpy as np
 import random
+import matplotlib.pyplot as plt
 
 # ROS
 import rospy
@@ -11,8 +12,11 @@ from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Twist
 
-# Const definision
-DATA_LENGTH = 256
+# Keras
+import keras
+from keras import layers,models,losses
+from keras.layers import Dense, Conv2D, Flatten, Dropout
+
 
 class HumanFollowTrain:
     def __init__(self):
@@ -53,6 +57,8 @@ class HumanFollowTrain:
                     resized_depth_img[0][h_i][w_i] = 0
                 else:
                     resized_depth_img[0][h_i][w_i] = 1-float(resized_depth_img[0][h_i][w_i]-30)/2980
+
+        resized_depth_img = resized_depth_img.reshape(1,128,128,1)
         return resized_depth_img
 
     def getTrainJoy(self):
@@ -62,39 +68,29 @@ class HumanFollowTrain:
         return joy_data
 
     def main(self):
-        r = rospy.Rate(10) # main loop Hz
-        img_num = 0
-        # create first black image
-        all_depth = np.zeros(128*128).reshape(1,128,128)
-        all_joy   = np.zeros(2).reshape(1,2)
-        while not rospy.is_shutdown() and img_num < DATA_LENGTH:
+        r = rospy.Rate(1) # main loop Hz
+
+        model = models.Sequential()
+        # Model Description
+        model.add(Conv2D(64, kernel_size=9, strides=(2,2), activation='relu', input_shape=(128,128,1)))
+        model.add(Dropout(0.2))
+        model.add(Conv2D(32, kernel_size=5, strides=(2,2), activation='relu'))
+        model.add(Dropout(0.2))
+        model.add(Conv2D(16, kernel_size=3, strides=(2,2), activation='relu'))
+        model.add(Dropout(0.2))
+        model.add(Flatten())
+        model.add(Dense(20,activation="relu"))
+        model.add(Dropout(0.2))
+        model.add(Dense(2))
+        model.load_weights("3c1d_adam_00001_mse.h5") 
+
+        while not rospy.is_shutdown():
             r.sleep()
-            img_num = img_num + 1
             # get and append data
             depth_data = self.getTrainDepth()
             joy_data = self.getTrainJoy()
-            all_depth = np.append(all_depth,depth_data,axis=0)
-            all_joy   = np.append(all_joy,joy_data,axis=0)
-            print img_num
-        # delete first black image
-        all_depth = np.delete(all_depth,0,axis=0)
-        all_joy   = np.delete(all_joy,0,axis=0)
-        # shuffle data
-        sort_num = range(DATA_LENGTH)
-        random.shuffle(sort_num)
-        swapped_depth = all_depth[[sort_num],:]
-        swapped_depth = np.reshape(all_depth,(DATA_LENGTH,128,128,1))
-        swapped_joy   = all_joy[[sort_num],:]
-        swapped_joy   = np.reshape(all_joy,(DATA_LENGTH,2))
-        # split to train and test
-        train_depth, test_depth = np.split(swapped_depth,2,0)
-        train_joy  , test_joy   = np.split(swapped_joy,2,0)
-        # save each data
-        np.save('train_depth.npy',train_depth)
-        np.save('train_joy.npy',train_joy)
-        np.save('test_depth.npy',test_depth)
-        np.save('test_joy.npy',test_joy)
-        print "train and test is saved!"
+            #print depth_data.shape
+            print model.predict(depth_data),joy_data
 
 if __name__ == '__main__':
     rospy.init_node('human_follow_train',anonymous=True)

@@ -2,89 +2,82 @@
 
 # General
 import numpy as np
-
-# ROS
-import rospy
-import cv2
-from cv_bridge import CvBridge, CvBridgeError
-from sensor_msgs.msg import Image
-from geometry_msgs.msg import Twist
+import matplotlib.pyplot as plt
 
 # Keras
 # Define Model
-from keras import layers,models
-from keras.layers.core import Dense
+import keras
+from keras import layers,models,losses
+from keras.layers import Dense, Conv2D, Flatten, Dropout
+from keras.layers.normalization import BatchNormalization
+
+# Constant
+EPOCHS = 300 
+
+# Initial Setting
 model = models.Sequential()
 
-# Expand Model using Dense
+# Model Description
+# Conv1 128 -> 60
+model.add(Conv2D(64, kernel_size=9, strides=(2,2), activation='relu', input_shape=(128,128,1)))
+#model.add(Dropout(0.2))
+#model.add(BatchNormalization())
+# Conv2 60 -> 28
+model.add(Conv2D(32, kernel_size=5, strides=(2,2), activation='relu'))
+#model.add(Dropout(0.2))
+#model.add(BatchNormalization())
+# Conv3 28 -> 13
+model.add(Conv2D(16, kernel_size=3, strides=(2,2), activation='relu'))
+#model.add(Dropout(0.2))
+#model.add(BatchNormalization())
+# Dence1 13*13 -> 20
+model.add(Flatten())
+model.add(Dense(20,activation="relu"))
+#model.add(Dropout(0.2))
+#model.add(BatchNormalization())
+# Dence2 20-> 2
+model.add(Dense(2))
 
-model.add(Dense(64, activation='relu', input_shape=(64 * 64,)))
-model.add(Dense(10, activation='softmax'))
-
-# 
-model.compile(optimizer='rmsprop',
-              loss='categorical_crossentropy',
+# Optimze Manner
+model.compile(optimizer='adam',
+              loss=losses.mean_squared_error,
               metrics=['accuracy'])
-#from keras.models
+keras.optimizers.Adam(lr=0.3,beta_1=0.9,beta_2=0.999,epsilon=None,decay=0.0)
 
-class HumanFollowTrain:
-    def __init__(self):
-        self.color_image_sub = rospy.Subscriber('/camera/color/image_raw',Image,self.ColorImageCB)
-        self.depth_image_sub = rospy.Subscriber('/camera/depth/image_rect_raw',Image,self.DepthImageCB)
-        self.joy_input_sub   = rospy.Subscriber('/teleop_velocity_smoother/raw_cmd_vel',Twist,self.JoyInputCB)
+#loss=losses.mean_absolute_percentage_error,
 
-        self.color_img = ()
-        self.depth_img = ()
-        self.joy_input = {"x":0, "theta":0}
-        self.bridge = CvBridge()
-        
-    def ColorImageCB(self,msg):
-        try:
-            self.color_img = self.bridge.imgmsg_to_cv2(msg)
-        except CvBridgeError as error_msg:
-            print(error_msg)
+# Load Training Data
+train_depth = np.load("train_depth.npy")
+train_joy   = np.load("train_joy.npy")
+test_depth  = np.load("test_depth.npy")
+test_joy    = np.load("test_joy.npy")
+print train_depth.shape
+print train_joy.shape
 
-    def DepthImageCB(self,msg):
-        try:
-            self.depth_img = self.bridge.imgmsg_to_cv2(msg)
-        except CvBridgeError as error_msg:
-            print(error_msg)
-    
-    def JoyInputCB(self,msg):
-        self.joy_input["x"]     = msg.linear.x
-        self.joy_input["theta"] = msg.angular.z
+# train model
+hist = model.fit(train_depth, train_joy,
+                 batch_size=64,
+                 verbose=1,
+                 epochs=EPOCHS,
+                 validation_split=0.2)
 
-    def genTrainData(self):
-        # convert image to (float64, 1*128*128)
-        resized_depth_img = cv2.resize(self.depth_img,dsize=(128,128))
-        resized_depth_img = resized_depth_img.astype(np.float64)
-        resized_depth_img = resized_depth_img.reshape(1,128,128)
-        # scaling depth from 0 to 1
-        for h_i in range(128):
-            for w_i in range(128):
-                if resized_depth_img[0][h_i][w_i] < 1 or 3000 < resized_depth_img[0][h_i][w_i]:
-                    resized_depth_img[0][h_i][w_i] = 0
-                else:
-                    resized_depth_img[0][h_i][w_i] = 1-float(resized_depth_img[0][h_i][w_i]-30)/2980
-        return resized_depth_img
+model.save_weights("new_weight.h5")
+score = model.evaluate(test_depth,test_joy,verbose=0)
+print("Test loss:",score[0])
+print("Test accuracy:",score[1])
+print hist.history["acc"]
+print hist.history["val_acc"]
 
-    def main(self):
-        r = rospy.Rate(10) # main loop Hz
-        img_num = 0
-        train_depth_imgs = np.zeros(128*128).reshape(1,128,128)
-        while not rospy.is_shutdown() and img_num < 256:
-            r.sleep()
-            img_num = img_num + 1
-            # generate traindata from self class depth image
-            train_data = self.getTrainDepth()
-            joy_data = self.getTrainJoy()
-            # append datasets
-            train_depth_imgs = np.append(train_depth_imgs,train_data,axis=0)
-            print img_num
-        # save training data
-        np.save('depth_data.npy',train_depth)
-        np.save('joy_data.npy',train_joy)
+plt.plot(range(1,EPOCHS+1),hist.history["acc"],label="training")
+plt.plot(range(1,EPOCHS+1),hist.history["val_acc"],label="valication")
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy")
+plt.legend(loc="lower right")
+plt.show()
 
-if __name__ == '__main__':
-    rospy.init_node('human_follow_train',anonymous=True)
-    human_follow_train = HumanFollowTrain()
+plt.plot(range(1,EPOCHS+1),hist.history["loss"],label="training")
+plt.plot(range(1,EPOCHS+1),hist.history["val_loss"],label="valication")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend(loc="upper right")
+plt.show()
