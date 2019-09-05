@@ -23,6 +23,7 @@ class HumanFollowTrain:
         self.color_image_sub = rospy.Subscriber('/camera/color/image_raw',Image,self.ColorImageCB)
         self.depth_image_sub = rospy.Subscriber('/camera/depth/image_rect_raw',Image,self.DepthImageCB)
         self.joy_input_sub   = rospy.Subscriber('/teleop_velocity_smoother/raw_cmd_vel',Twist,self.JoyInputCB)
+        self.joy_pub = rospy.Publisher('/cmd_vel_mux/input/teleop',Twist,queue_size=1)
 
         self.color_img = ()
         self.depth_img = ()
@@ -89,8 +90,12 @@ class HumanFollowTrain:
             # get and append data
             depth_data = self.getTrainDepth()
             joy_data = self.getTrainJoy()
-            #print depth_data.shape
-            print model.predict(depth_data),joy_data
+            vel = model.predict(depth_data)
+            cmd_vel = Twist()
+            cmd_vel.linear.x = vel[0][0]
+            cmd_vel.angular.z = vel[0][1]
+            print cmd_vel
+            self.joy_pub.publish(cmd_vel)
 
 if __name__ == '__main__':
     rospy.init_node('human_follow_train',anonymous=True)
